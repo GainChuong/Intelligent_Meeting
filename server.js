@@ -25,6 +25,7 @@ import {
   sendResetPasswordOtpEmail,
   sendMeetingConfirmedEmail,
   sendMeetingReminderEmail,
+  sendGroupInvitationEmail,
   buildGoogleCalendarUrl
 } from './lib/email-service.js';
 
@@ -175,22 +176,24 @@ app.post('/api/auth/request-register-otp', async (req, res) => {
     logEmailEvent(state, {
       type: 'REGISTER_OTP',
       recipient: normalizedEmail,
-      subject: `[Meet up] Mã OTP đăng ký tài khoản: ${otp}`,
+      subject: `[Meet up] Mã OTP đăng ký tài khoản (6 số)`,
       sent: mailResult.sent,
       messageId: mailResult.messageId || null
     });
 
     await saveStoreState(state);
 
+    if (!mailResult.sent) {
+      return res.status(500).json({
+        error: `Không thể gửi email OTP lúc này: ${mailResult.error || 'Vui lòng kiểm tra kết nối mạng'}`
+      });
+    }
+
     res.json({
       ok: true,
       email: normalizedEmail,
       emailSent: mailResult.sent,
-      sender: process.env.EMAIL_USER,
-      demoOtpHint: otp,
-      message: mailResult.sent
-        ? `Đã gửi mã OTP 6 số tới hộp thư ${normalizedEmail} từ ${process.env.EMAIL_USER}.`
-        : `Đã tạo mã OTP kích hoạt cho ${normalizedEmail}.`
+      message: `Đã gửi mã OTP 6 số tới hộp thư ${normalizedEmail}. Vui lòng mở email để lấy mã xác nhận.`
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -219,7 +222,7 @@ app.post('/api/auth/verify-register-otp', async (req, res) => {
       return res.status(400).json({ error: 'Mã OTP đã hết hạn (quá 10 phút). Vui lòng yêu cầu mã mới.' });
     }
     if (record.otp !== cleanOtp) {
-      return res.status(400).json({ error: 'Mã OTP không chính xác. Vui lòng kiểm tra lại hộp thư Gmail.' });
+      return res.status(400).json({ error: 'Mã OTP không chính xác. Vui lòng kiểm tra lại hộp thư email.' });
     }
 
     const avatarPalette = ['#3D7A5A', '#E85A4F', '#2E6B8E', '#C88A2E', '#7A5486'];
@@ -239,23 +242,6 @@ app.post('/api/auth/verify-register-otp', async (req, res) => {
         created_at: new Date().toISOString()
       };
       state.users.push(user);
-
-      // Automatically add newly registered user to the primary group so they can drag-to-vote right away
-      const defaultGroup = state.groups[0];
-      if (defaultGroup) {
-        const existsInGroup = state.group_members.some(
-          gm => gm.group_id === defaultGroup.id && gm.user_email.toLowerCase() === normalizedEmail
-        );
-        if (!existsInGroup) {
-          state.group_members.push({
-            group_id: defaultGroup.id,
-            user_email: user.email,
-            user_name: user.name,
-            role: user.role,
-            avatar_color: user.avatar_color
-          });
-        }
-      }
     } else {
       user.name = record.name || user.name;
       user.password_hash = record.password_hash;
@@ -266,7 +252,7 @@ app.post('/api/auth/verify-register-otp', async (req, res) => {
     try {
       await supabaseAdmin.auth.admin.createUser({
         email: user.email,
-        password: record.raw_password || 'Tossup@2026',
+        password: record.raw_password,
         email_confirm: true,
         user_metadata: {
           name: user.name,
@@ -293,7 +279,7 @@ app.post('/api/auth/verify-register-otp', async (req, res) => {
       ok: true,
       token,
       user: sanitizeUser(user),
-      message: 'Xác thực OTP thành công! Tài khoản đã được kích hoạt.'
+      message: 'Xác thực OTP thành công! Tài khoản của bạn đã sẵn sàng.'
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -302,24 +288,22 @@ app.post('/api/auth/verify-register-otp', async (req, res) => {
 
 /**
  * POST /api/auth/login
- * Standard Email + Password login (or 1-click crew member switch)
+ * Standard Email + Password login
  */
 app.post('/api/auth/login', async (req, res) => {
   try {
-    const { email, password, quickSwitch = false } = req.body || {};
+    const { email, password } = req.body || {};
     const normalizedEmail = String(email || '').trim().toLowerCase();
     const state = await getStoreState();
 
     const user = state.users.find(u => u.email.toLowerCase() === normalizedEmail);
     if (!user) {
-      return res.status(404).json({ error: 'Không tìm thấy tài khoản với email này. Vui lòng đăng ký mới.' });
+      return res.status(404).json({ error: 'Không tìm thấy tài khoản với email này. Vui lòng chuyển sang tab Đăng ký (OTP) để tạo tài khoản.' });
     }
 
-    if (!quickSwitch) {
-      const valid = bcrypt.compareSync(String(password || ''), user.password_hash || '');
-      if (!valid && password !== 'Tossup@2026') {
-        return res.status(401).json({ error: 'Mật khẩu không đúng. Bạn có thể bấm "Quên mật khẩu" để nhận OTP qua Gmail.' });
-      }
+    const valid = bcrypt.compareSync(String(password || ''), user.password_hash || '');
+    if (!valid) {
+      return res.status(401).json({ error: 'Mật khẩu không đúng. Bạn có thể bấm "Quên mật khẩu" để nhận mã OTP qua email.' });
     }
 
     const token = createSessionToken(user);
@@ -403,21 +387,24 @@ app.post('/api/auth/request-reset-otp', async (req, res) => {
       type: 'RESET_PASSWORD_OTP',
       recipient: normalizedEmail,
       serviceAccount: SERVICE_ACCOUNT_EMAIL,
-      subject: `[Meet up] Mã OTP đặt lại mật khẩu: ${otp}`,
+      subject: `[Meet up] Mã OTP đặt lại mật khẩu (6 số)`,
       sent: mailResult.sent,
       messageId: mailResult.messageId || null
     });
 
     await saveStoreState(state);
 
+    if (!mailResult.sent) {
+      return res.status(500).json({
+        error: `Không thể gửi email khôi phục lúc này: ${mailResult.error || 'Vui lòng thử lại'}`
+      });
+    }
+
     res.json({
       ok: true,
       email: normalizedEmail,
       emailSent: mailResult.sent,
-      demoOtpHint: otp,
-      message: mailResult.sent
-        ? `Đã gửi mã OTP đặt lại mật khẩu tới hộp thư ${normalizedEmail}.`
-        : `Đã tạo mã OTP khôi phục mật khẩu cho ${normalizedEmail}.`
+      message: `Đã gửi mã OTP 6 số đặt lại mật khẩu tới hộp thư ${normalizedEmail}. Vui lòng kiểm tra email.`
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -538,29 +525,14 @@ app.patch('/api/auth/preferences', requireAuth, async (req, res) => {
 
 /**
  * GET /api/public/bootstrap
- * Public endpoint returning crew members list for 1-click demo login + live Toss-up preview
+ * Public endpoint returning current week metadata
  */
 app.get('/api/public/bootstrap', async (req, res) => {
   try {
-    const state = await getStoreState();
     const weekMeta = getWeekMetadata(0);
-    const primaryGroup = state.groups[0];
-    const primaryMembers = state.group_members.filter(m => m.group_id === primaryGroup.id);
-    const primaryOverlap = computeGroupOverlap({
-      group: primaryGroup,
-      members: primaryMembers,
-      votes: state.availability_votes,
-      weekMeta
-    });
-
     res.json({
       ok: true,
-      supabaseProject: 'https://cbizvzvbdkykcrydckwi.supabase.co',
-      googleServiceAccount: SERVICE_ACCOUNT_EMAIL,
-      emailServiceAccount: process.env.EMAIL_USER || 'gameyuno123@gmail.com',
-      weekMeta,
-      demoUsers: state.users.map(sanitizeUser),
-      previewOverlap: primaryOverlap
+      weekMeta
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -568,27 +540,48 @@ app.get('/api/public/bootstrap', async (req, res) => {
 });
 
 // ============================================================================
-// 2. PROTECTED SCHEDULER, GROUPS, OVERLAP & WEEKLY AUTO-RESET ENDPOINTS
+// 2. PROTECTED SCHEDULER, GROUPS, INVITATIONS, OVERLAP & WEEKLY AUTO-RESET
 // ============================================================================
 
 /**
  * GET /api/dashboard (Protected)
- * Returns complete workspace state for the selected weekOffset, active group, and multi-group selection
+ * Returns complete workspace state scoped to the logged-in user's groups and invitations
  */
 app.get('/api/dashboard', requireAuth, async (req, res) => {
   try {
     const state = req.storeState;
+    if (!Array.isArray(state.group_invitations)) state.group_invitations = [];
+
+    const userEmailLower = req.user.email.toLowerCase();
     const weekOffset = Number(req.query.weekOffset || 0);
     const weekMeta = getWeekMetadata(weekOffset);
-    const activeGroupId = req.query.groupId || state.groups[0]?.id;
+
+    // Filter groups to ONLY groups where the current user is an active member
+    const myGroupIds = new Set(
+      state.group_members
+        .filter(m => m.user_email.toLowerCase() === userEmailLower)
+        .map(m => m.group_id)
+    );
+    const myGroups = state.groups.filter(g => myGroupIds.has(g.id));
+
+    const activeGroupId =
+      req.query.groupId && myGroupIds.has(req.query.groupId)
+        ? req.query.groupId
+        : myGroups[0]?.id || null;
+
     const managerModeParam = req.query.managerMode;
     const compareGroupIds = req.query.compareGroups
-      ? String(req.query.compareGroups).split(',').filter(Boolean)
-      : state.groups.map(g => g.id);
+      ? String(req.query.compareGroups)
+          .split(',')
+          .filter(id => myGroupIds.has(id))
+      : myGroups.map(g => g.id);
 
-    // Compute per-group summaries & overlaps
-    const groupReports = state.groups.map(grp => {
+    // Compute per-group summaries & overlaps for user's groups
+    const groupReports = myGroups.map(grp => {
       const members = state.group_members.filter(m => m.group_id === grp.id);
+      const pendingGroupInvites = state.group_invitations.filter(
+        inv => inv.group_id === grp.id && inv.status === 'pending'
+      );
       const overrideMgr =
         grp.id === activeGroupId && managerModeParam !== undefined
           ? managerModeParam === 'true'
@@ -606,7 +599,7 @@ app.get('/api/dashboard', requireAuth, async (req, res) => {
         v =>
           v.group_id === grp.id &&
           v.week_key === weekMeta.weekKey &&
-          v.user_email.toLowerCase() === req.user.email.toLowerCase()
+          v.user_email.toLowerCase() === userEmailLower
       );
 
       const allVotesForWeek = state.availability_votes.filter(
@@ -616,6 +609,7 @@ app.get('/api/dashboard', requireAuth, async (req, res) => {
       return {
         ...grp,
         members,
+        pendingInvites: pendingGroupInvites,
         mySlots: myVote?.slots || {},
         allVotesForWeek,
         overlap
@@ -625,7 +619,7 @@ app.get('/api/dashboard', requireAuth, async (req, res) => {
     const activeGroupReport = groupReports.find(g => g.id === activeGroupId) || groupReports[0] || null;
 
     // Multi-group cross-comparison
-    const selectedGroupsForCompare = state.groups.filter(g => compareGroupIds.includes(g.id));
+    const selectedGroupsForCompare = myGroups.filter(g => compareGroupIds.includes(g.id));
     const multiGroupManagerMode =
       req.query.multiManagerMode !== undefined
         ? req.query.multiManagerMode === 'true'
@@ -637,31 +631,52 @@ app.get('/api/dashboard', requireAuth, async (req, res) => {
       allVotes: state.availability_votes,
       weekMeta,
       managerMode: multiGroupManagerMode,
-      managerEmail: activeGroupReport?.manager_email || 'gameyuno123@gmail.com'
+      managerEmail: activeGroupReport?.manager_email || req.user.email
     });
 
-    // Enrich confirmed meetings with Google Calendar URLs
-    const meetingsWithLinks = (state.confirmed_meetings || []).map(m => ({
-      ...m,
-      googleCalendarUrl: buildGoogleCalendarUrl(m)
-    }));
+    // Pending invitations sent TO this user
+    const myPendingInvitations = state.group_invitations.filter(
+      inv => inv.invitee_email.toLowerCase() === userEmailLower && inv.status === 'pending'
+    );
+
+    // Confirmed meetings belonging to user's groups
+    const myConfirmedMeetings = (state.confirmed_meetings || [])
+      .filter(
+        m =>
+          myGroupIds.has(m.group_id) ||
+          (m.attendee_emails || []).some(e => e.toLowerCase() === userEmailLower)
+      )
+      .map(m => ({
+        ...m,
+        googleCalendarUrl: buildGoogleCalendarUrl(m)
+      }));
+
+    // Voting & meeting history scoped to user's groups
+    const myVotingHistory = (state.voting_history || [])
+      .filter(vh => myGroupIds.has(vh.group_id) || vh.user_email.toLowerCase() === userEmailLower)
+      .slice(0, 40);
+
+    const myMeetingHistory = (state.meeting_history || [])
+      .filter(mh => myGroupIds.has(mh.group_id) || (mh.confirmed_by_email || '').toLowerCase() === userEmailLower)
+      .slice(0, 40);
+
+    const myEmailLogs = (state.email_logs || [])
+      .filter(el => (el.recipient || '').toLowerCase().includes(userEmailLower))
+      .slice(0, 20);
 
     res.json({
       ok: true,
-      supabaseProject: 'https://cbizvzvbdkykcrydckwi.supabase.co',
-      googleServiceAccount: SERVICE_ACCOUNT_EMAIL,
-      emailRelayAccount: process.env.EMAIL_USER || 'gameyuno123@gmail.com',
       currentUser: sanitizeUser(req.user),
-      allUsers: state.users.map(sanitizeUser),
       weekMeta,
       timeSlots: ALL_TIME_SLOTS,
       groups: groupReports,
       activeGroup: activeGroupReport,
+      pendingInvitations: myPendingInvitations,
       multiGroupOverlap,
-      confirmedMeetings: meetingsWithLinks,
-      votingHistory: (state.voting_history || []).slice(0, 30),
-      meetingHistory: (state.meeting_history || []).slice(0, 30),
-      emailLogs: (state.email_logs || []).slice(0, 15)
+      confirmedMeetings: myConfirmedMeetings,
+      votingHistory: myVotingHistory,
+      meetingHistory: myMeetingHistory,
+      emailLogs: myEmailLogs
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -670,7 +685,7 @@ app.get('/api/dashboard', requireAuth, async (req, res) => {
 
 /**
  * POST /api/groups (Protected)
- * Create a new recurring meeting group
+ * Create a new recurring meeting group and optionally send email invitations
  */
 app.post('/api/groups', requireAuth, async (req, res) => {
   try {
@@ -679,10 +694,10 @@ app.post('/api/groups', requireAuth, async (req, res) => {
       description,
       category = 'Weekly Crew',
       location = 'Google Meet',
-      min_quorum = 3,
+      min_quorum = 2,
       duration_minutes = 90,
       manager_mode_default = true,
-      member_emails = []
+      invite_emails = []
     } = req.body || {};
 
     if (!name || !String(name).trim()) {
@@ -690,18 +705,20 @@ app.post('/api/groups', requireAuth, async (req, res) => {
     }
 
     const state = req.storeState;
+    if (!Array.isArray(state.group_invitations)) state.group_invitations = [];
+
     const weekMeta = getWeekMetadata(0);
     const groupId = `grp-${Date.now().toString(36)}`;
-    const inviteCode = `${String(name).replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 5) || 'CREW'}-${Math.floor(100 + Math.random() * 900)}`;
+    const inviteCode = `${String(name).replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 5) || 'MEET'}-${Math.floor(100 + Math.random() * 900)}`;
 
     const newGroup = {
       id: groupId,
       name: String(name).trim(),
-      description: String(description || 'Nhóm họp định kỳ hàng tuần, tự động reset lịch rảnh khi sang tuần mới.').trim(),
+      description: String(description || 'Nhóm họp định kỳ hàng tuần, tự động làm mới lịch rảnh khi sang tuần mới.').trim(),
       category,
       location: String(location || 'Google Meet').trim(),
       invite_code: inviteCode,
-      min_quorum: Number(min_quorum) || 3,
+      min_quorum: Number(min_quorum) || 2,
       duration_minutes: Number(duration_minutes) || 90,
       manager_email: req.user.email,
       manager_mode_default: Boolean(manager_mode_default),
@@ -712,16 +729,59 @@ app.post('/api/groups', requireAuth, async (req, res) => {
 
     state.groups.push(newGroup);
 
-    // Add creator as manager + selected members
-    const uniqueEmails = Array.from(new Set([req.user.email, ...member_emails]));
-    for (const em of uniqueEmails) {
-      const foundUser = state.users.find(u => u.email.toLowerCase() === String(em).toLowerCase());
-      state.group_members.push({
+    // Only the creator is added immediately as Manager. Invited emails receive an invitation and must accept first!
+    state.group_members.push({
+      group_id: groupId,
+      user_email: req.user.email,
+      user_name: req.user.name,
+      role: 'manager',
+      avatar_color: req.user.avatar_color || '#3D7A5A'
+    });
+
+    const cleanInviteEmails = Array.from(
+      new Set(
+        (Array.isArray(invite_emails) ? invite_emails : String(invite_emails || '').split(/[,;\s]+/))
+          .map(e => String(e).trim().toLowerCase())
+          .filter(e => e.includes('@') && e !== req.user.email.toLowerCase())
+      )
+    );
+
+    const appBaseUrl = `${req.protocol}://${req.get('host')}`;
+    let sentInviteCount = 0;
+
+    for (const targetEmail of cleanInviteEmails) {
+      const inviteToken = `inv_${crypto.randomBytes(18).toString('hex')}`;
+      const inviteObj = {
+        id: `inv-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        token: inviteToken,
         group_id: groupId,
-        user_email: foundUser ? foundUser.email : em,
-        user_name: foundUser ? foundUser.name : String(em).split('@')[0],
-        role: String(em).toLowerCase() === req.user.email.toLowerCase() ? 'manager' : 'member',
-        avatar_color: foundUser ? foundUser.avatar_color : '#3D7A5A'
+        group_name: newGroup.name,
+        group_description: newGroup.description,
+        inviter_email: req.user.email,
+        inviter_name: req.user.name,
+        invitee_email: targetEmail,
+        status: 'pending',
+        created_at: new Date().toISOString()
+      };
+      state.group_invitations.unshift(inviteObj);
+
+      const mailRes = await sendGroupInvitationEmail({
+        recipientEmail: targetEmail,
+        inviterName: req.user.name,
+        inviterEmail: req.user.email,
+        groupName: newGroup.name,
+        groupDescription: newGroup.description,
+        inviteToken,
+        appBaseUrl
+      });
+      if (mailRes.sent) sentInviteCount++;
+
+      logEmailEvent(state, {
+        type: 'GROUP_INVITE',
+        recipient: targetEmail,
+        subject: `[Meet up] ${req.user.name} mời bạn tham gia nhóm "${newGroup.name}"`,
+        sent: mailRes.sent,
+        messageId: mailRes.messageId || null
       });
     }
 
@@ -729,10 +789,235 @@ app.post('/api/groups', requireAuth, async (req, res) => {
     res.json({
       ok: true,
       group: newGroup,
-      message: `Đã tạo nhóm "${newGroup.name}" (Mã mời: ${newGroup.invite_code}).`
+      sentInviteCount,
+      message:
+        sentInviteCount > 0
+          ? `Đã tạo nhóm "${newGroup.name}" và gửi ${sentInviteCount} lời mời qua email. Khi họ bấm Đồng ý sẽ được thêm vào nhóm.`
+          : `Đã tạo nhóm "${newGroup.name}" thành công!`
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/groups/:groupId/invite (Protected)
+ * Send email invitation(s) to join a group. Invitee is only added after accepting.
+ */
+app.post('/api/groups/:groupId/invite', requireAuth, async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const { email } = req.body || {};
+    const state = req.storeState;
+    if (!Array.isArray(state.group_invitations)) state.group_invitations = [];
+
+    const grp = state.groups.find(g => g.id === groupId);
+    if (!grp) {
+      return res.status(404).json({ error: 'Không tìm thấy nhóm này.' });
+    }
+
+    // Parse one or multiple comma-separated emails
+    const emailList = Array.from(
+      new Set(
+        String(email || '')
+          .split(/[,;\s]+/)
+          .map(e => e.trim().toLowerCase())
+          .filter(e => e.includes('@'))
+      )
+    );
+
+    if (emailList.length === 0) {
+      return res.status(400).json({ error: 'Vui lòng nhập ít nhất một địa chỉ email hợp lệ để mời.' });
+    }
+
+    const appBaseUrl = `${req.protocol}://${req.get('host')}`;
+    const invitedList = [];
+    const skippedAlreadyMember = [];
+
+    for (const targetEmail of emailList) {
+      const isAlreadyMember = state.group_members.some(
+        m => m.group_id === groupId && m.user_email.toLowerCase() === targetEmail
+      );
+      if (isAlreadyMember) {
+        skippedAlreadyMember.push(targetEmail);
+        continue;
+      }
+
+      // Remove existing pending invite for same group + email so we issue a fresh one
+      state.group_invitations = state.group_invitations.filter(
+        inv =>
+          !(
+            inv.group_id === groupId &&
+            inv.invitee_email.toLowerCase() === targetEmail &&
+            inv.status === 'pending'
+          )
+      );
+
+      const inviteToken = `inv_${crypto.randomBytes(18).toString('hex')}`;
+      const inviteObj = {
+        id: `inv-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        token: inviteToken,
+        group_id: groupId,
+        group_name: grp.name,
+        group_description: grp.description,
+        inviter_email: req.user.email,
+        inviter_name: req.user.name,
+        invitee_email: targetEmail,
+        status: 'pending',
+        created_at: new Date().toISOString()
+      };
+
+      state.group_invitations.unshift(inviteObj);
+
+      const mailRes = await sendGroupInvitationEmail({
+        recipientEmail: targetEmail,
+        inviterName: req.user.name,
+        inviterEmail: req.user.email,
+        groupName: grp.name,
+        groupDescription: grp.description,
+        inviteToken,
+        appBaseUrl
+      });
+
+      logEmailEvent(state, {
+        type: 'GROUP_INVITE',
+        recipient: targetEmail,
+        subject: `[Meet up] ${req.user.name} mời bạn tham gia nhóm "${grp.name}"`,
+        sent: mailRes.sent,
+        messageId: mailRes.messageId || null
+      });
+
+      invitedList.push({ email: targetEmail, sent: mailRes.sent });
+    }
+
+    await saveStoreState(state);
+
+    if (invitedList.length === 0 && skippedAlreadyMember.length > 0) {
+      return res.status(400).json({
+        error: `${skippedAlreadyMember.join(', ')} đã là thành viên trong nhóm rồi.`
+      });
+    }
+
+    res.json({
+      ok: true,
+      invited: invitedList,
+      message: `Đã gửi email mời tham gia nhóm "${grp.name}" tới ${invitedList.map(i => i.email).join(', ')}. Khi họ đồng ý, họ sẽ được thêm vào nhóm!`
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/invitations/:inviteId/respond (Protected)
+ * Accept or decline an invitation from inside the web dashboard
+ */
+app.post('/api/invitations/:inviteId/respond', requireAuth, async (req, res) => {
+  try {
+    const { inviteId } = req.params;
+    const { action = 'accept' } = req.body || {};
+    const state = req.storeState;
+    if (!Array.isArray(state.group_invitations)) state.group_invitations = [];
+
+    const inv = state.group_invitations.find(
+      i =>
+        (i.id === inviteId || i.token === inviteId) &&
+        i.invitee_email.toLowerCase() === req.user.email.toLowerCase()
+    );
+
+    if (!inv) {
+      return res.status(404).json({ error: 'Không tìm thấy lời mời này.' });
+    }
+    if (inv.status !== 'pending') {
+      return res.status(400).json({ error: 'Lời mời này đã được phản hồi trước đó.' });
+    }
+
+    if (action === 'decline') {
+      inv.status = 'declined';
+      inv.responded_at = new Date().toISOString();
+      await saveStoreState(state);
+      return res.json({
+        ok: true,
+        status: 'declined',
+        message: `Đã từ chối lời mời vào nhóm "${inv.group_name}".`
+      });
+    }
+
+    inv.status = 'accepted';
+    inv.responded_at = new Date().toISOString();
+
+    const alreadyMember = state.group_members.some(
+      m => m.group_id === inv.group_id && m.user_email.toLowerCase() === req.user.email.toLowerCase()
+    );
+    if (!alreadyMember) {
+      state.group_members.push({
+        group_id: inv.group_id,
+        user_email: req.user.email,
+        user_name: req.user.name,
+        role: 'member',
+        avatar_color: req.user.avatar_color || '#2E6B8E'
+      });
+    }
+
+    await saveStoreState(state);
+    res.json({
+      ok: true,
+      status: 'accepted',
+      groupId: inv.group_id,
+      message: `Bạn đã đồng ý tham gia nhóm "${inv.group_name}"! Hãy kéo thả lịch rảnh của bạn.`
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/invitations/respond
+ * Direct 1-click Accept/Decline link from the invitation email
+ */
+app.get('/api/invitations/respond', async (req, res) => {
+  try {
+    const { token, action = 'accept' } = req.query || {};
+    const state = await getStoreState();
+    if (!Array.isArray(state.group_invitations)) state.group_invitations = [];
+
+    const inv = state.group_invitations.find(i => i.token === token);
+    if (!inv) {
+      return res.status(404).send(`<!DOCTYPE html><html lang="vi"><head><meta charset="utf-8"><title>Meet up</title></head><body style="font-family:'Be Vietnam Pro',sans-serif;background:#FBF8F0;color:#1F1B16;padding:48px;text-align:center;"><h2>Liên kết lời mời không tồn tại hoặc đã hết hạn</h2><p><a href="/" style="color:#E85A4F;font-weight:700;">Quay về trang chủ Meet up</a></p></body></html>`);
+    }
+
+    const inviteeEmail = inv.invitee_email.toLowerCase();
+    const existingUser = state.users.find(u => u.email.toLowerCase() === inviteeEmail);
+
+    if (action === 'decline') {
+      inv.status = 'declined';
+      inv.responded_at = new Date().toISOString();
+      await saveStoreState(state);
+      return res.send(`<!DOCTYPE html><html lang="vi"><head><meta charset="utf-8"><title>Đã từ chối lời mời · Meet up</title></head><body style="font-family:'Be Vietnam Pro',sans-serif;background:#FBF8F0;color:#1F1B16;padding:48px;text-align:center;"><div style="max-width:460px;margin:0 auto;background:#F5F1E8;border:2px solid #1F1B16;border-radius:18px;padding:32px;"><h2 style="margin-top:0;">Đã từ chối lời mời</h2><p>Bạn đã từ chối tham gia nhóm <strong>${inv.group_name}</strong>.</p><a href="/" style="display:inline-block;margin-top:16px;padding:12px 24px;background:#1F1B16;color:#FBF8F0;text-decoration:none;border-radius:999px;font-weight:700;">Mở Meet up</a></div></body></html>`);
+    }
+
+    // Accept action
+    inv.status = 'accepted';
+    inv.responded_at = new Date().toISOString();
+
+    const alreadyMember = state.group_members.some(
+      m => m.group_id === inv.group_id && m.user_email.toLowerCase() === inviteeEmail
+    );
+    if (!alreadyMember) {
+      state.group_members.push({
+        group_id: inv.group_id,
+        user_email: existingUser ? existingUser.email : inviteeEmail,
+        user_name: existingUser ? existingUser.name : inviteeEmail.split('@')[0],
+        role: 'member',
+        avatar_color: existingUser ? existingUser.avatar_color : '#2E6B8E'
+      });
+    }
+
+    await saveStoreState(state);
+
+    return res.send(`<!DOCTYPE html><html lang="vi"><head><meta charset="utf-8"><title>Đã tham gia nhóm · Meet up</title><link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@500;700;800&display=swap" rel="stylesheet"></head><body style="font-family:'Be Vietnam Pro',sans-serif;background:#FBF8F0;color:#1F1B16;padding:48px 16px;text-align:center;"><div style="max-width:480px;margin:0 auto;background:#F5F1E8;border:2px solid #1F1B16;border-radius:18px;padding:32px;"><div style="display:inline-block;padding:6px 14px;background:#3D7A5A;color:#FBF8F0;border-radius:999px;font-size:12px;font-weight:700;margin-bottom:12px;">Đã xác nhận đồng ý</div><h2 style="margin:0 0 10px;font-size:22px;">Chào mừng bạn vào nhóm "${inv.group_name}"!</h2><p style="color:#6E665B;font-size:14px;line-height:1.5;margin-bottom:24px;">Bạn đã chấp nhận lời mời của <strong>${inv.inviter_name}</strong>. Tài khoản <strong>${inviteeEmail}</strong> đã được thêm vào nhóm.</p><a href="/?invited_email=${encodeURIComponent(inviteeEmail)}" style="display:inline-block;padding:13px 28px;background:#3D7A5A;color:#FBF8F0;text-decoration:none;border-radius:999px;font-weight:700;font-size:14px;">Vào bảng kéo thả lịch rảnh ngay</a></div></body></html>`);
+  } catch (err) {
+    res.status(500).send(err.message);
   }
 });
 
@@ -916,20 +1201,9 @@ app.post('/api/groups/:groupId/toggle-manager-mode', requireAuth, async (req, re
 app.post('/api/groups/:groupId/reset-week', requireAuth, async (req, res) => {
   try {
     const { groupId } = req.params;
-    const { weekKey, mode = 'clear_current' } = req.body || {};
+    const { weekKey } = req.body || {};
     const state = req.storeState;
     const effectiveWeek = weekKey || getWeekMetadata(0).weekKey;
-
-    if (mode === 'restore_seed') {
-      // Restore default rich votes for demo convenience
-      const fresh = await import('./lib/supabase-store.js').then(m => m.buildInitialSeedState());
-      state.availability_votes = fresh.availability_votes;
-      await saveStoreState(state);
-      return res.json({
-        ok: true,
-        message: 'Đã khôi phục dữ liệu vote mẫu của toàn bộ thành viên trong tuần.'
-      });
-    }
 
     // Clear votes for this group & week (simulating new week fresh slate)
     state.availability_votes = state.availability_votes.filter(
@@ -946,7 +1220,7 @@ app.post('/api/groups/:groupId/reset-week', requireAuth, async (req, res) => {
     res.json({
       ok: true,
       weekKey: effectiveWeek,
-      message: `Đã reset bảng vote lịch rảnh của nhóm cho tuần ${effectiveWeek}. Các cuộc họp đã chốt trên Calendar chung vẫn được giữ nguyên.`
+      message: `Đã làm mới bảng vote lịch rảnh của nhóm cho tuần ${effectiveWeek}. Các cuộc họp đã chốt trên Calendar chung vẫn được giữ nguyên.`
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
