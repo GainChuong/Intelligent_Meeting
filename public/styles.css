@@ -1043,8 +1043,24 @@ button, input, select, textarea {
 
 .drag-table-wrap {
   overflow-x: auto;
+  overflow-y: auto;
+  max-height: 620px;
   user-select: none;
   -webkit-user-select: none;
+  border-radius: 12px;
+}
+
+.drag-grid thead th {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.drag-grid tbody .time-label-cell {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: var(--surface);
 }
 
 .drag-grid {
