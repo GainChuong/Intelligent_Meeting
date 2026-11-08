@@ -18,6 +18,8 @@ const state = {
   multiGroupManagerMode: true,
   multiGroupOverlap: null,
   confirmedMeetings: [],
+  votingHistory: [],
+  meetingHistory: [],
   emailLogs: [],
   // Interactive drag-to-vote state
   mySlots: {},
@@ -385,6 +387,8 @@ async function loadDashboardData() {
     state.mySlots = structuredClone(data.activeGroup?.mySlots || {});
     state.multiGroupOverlap = data.multiGroupOverlap;
     state.confirmedMeetings = data.confirmedMeetings || [];
+    state.votingHistory = data.votingHistory || [];
+    state.meetingHistory = data.meetingHistory || [];
     state.emailLogs = data.emailLogs || [];
 
     if (state.compareGroupIds.length === 0) {
@@ -956,6 +960,99 @@ function renderConfirmedCalendarView() {
 }
 
 function renderEmailLogsView() {
+  // 1. Render Voting History List
+  const votingList = document.getElementById('votingHistoryList');
+  const votingBadge = document.getElementById('votingHistoryCountBadge');
+  if (votingBadge) {
+    votingBadge.textContent = `${(state.votingHistory || []).length} lượt ghi nhận`;
+  }
+  if (votingList) {
+    if (!state.votingHistory || state.votingHistory.length === 0) {
+      votingList.innerHTML = `
+        <div style="padding:18px;background:var(--surface-elevated);border-radius:14px;color:var(--muted);">
+          Chưa có lịch sử vote. Kéo thả các ô lịch rảnh ở tab Kéo thả để hệ thống tự động ghi nhận lần vote của bạn!
+        </div>
+      `;
+    } else {
+      votingList.innerHTML = state.votingHistory
+        .map(
+          item => `
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:12px 16px;background:var(--surface-elevated);border-radius:14px;">
+          <div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;">
+              <span class="pill-badge pill-sage">${item.action === 'vote_submitted' ? 'Đã vote' : 'Cập nhật vote'}</span>
+              <strong style="font-size:14px;">${item.user_name}</strong>
+              <span style="font-size:12.5px;color:var(--muted);">nhóm <strong>${item.group_name}</strong></span>
+            </div>
+            <div style="font-size:12px;color:var(--muted);">
+              Tuần: <strong>${item.week_key}</strong> · Số khung giờ đã chọn: <strong class="tabular" style="color:var(--sage);">${item.slots_count} ô (30p/ô)</strong>
+            </div>
+          </div>
+          <div style="font-size:12px;color:var(--muted);text-align:right;">
+            <div class="tabular">${new Date(item.created_at).toLocaleString('vi-VN')}</div>
+          </div>
+        </div>
+      `
+        )
+        .join('');
+    }
+  }
+
+  // 2. Render Confirmed Meetings History List
+  const meetingList = document.getElementById('meetingHistoryList');
+  const meetingBadge = document.getElementById('meetingHistoryCountBadge');
+  const allMeetingsHistory = (state.meetingHistory && state.meetingHistory.length > 0)
+    ? state.meetingHistory
+    : (state.confirmedMeetings || []).map(m => ({
+        id: m.id,
+        group_name: m.group_name,
+        week_key: m.week_key,
+        title: m.title,
+        time: `${m.day_code} (${m.date_iso}) ${m.start_time}-${m.end_time}`,
+        location: m.location,
+        confirmed_by: m.confirmed_by_name,
+        attendees_count: (m.attendee_names || []).length,
+        created_at: m.created_at
+      }));
+
+  if (meetingBadge) {
+    meetingBadge.textContent = `${allMeetingsHistory.length} cuộc họp`;
+  }
+  if (meetingList) {
+    if (allMeetingsHistory.length === 0) {
+      meetingList.innerHTML = `
+        <div style="padding:18px;background:var(--surface-elevated);border-radius:14px;color:var(--muted);">
+          Chưa có cuộc họp nào được chốt trong lịch sử. Bấm vào bất kỳ thẻ ngày đề xuất rảnh nhất để chốt cuộc họp!
+        </div>
+      `;
+    } else {
+      meetingList.innerHTML = allMeetingsHistory
+        .map(
+          item => `
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:14px 16px;background:var(--surface-elevated);border-radius:14px;border-left:4px solid var(--sage);">
+          <div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+              <span class="pill-badge pill-sage">Đã chốt lịch</span>
+              <strong style="font-size:14px;">${item.title}</strong>
+            </div>
+            <div style="font-size:12.5px;color:var(--ink-soft);margin-bottom:3px;">
+              Nhóm: <strong>${item.group_name}</strong> · Tuần: <strong>${item.week_key}</strong> · Thời gian: <strong style="color:var(--sage);">${item.time}</strong>
+            </div>
+            <div style="font-size:12px;color:var(--muted);">
+              Địa điểm: ${item.location || 'Google Meet'} · Người chốt: <strong>${item.confirmed_by}</strong> · (${item.attendees_count} người tham gia)
+            </div>
+          </div>
+          <div style="font-size:12px;color:var(--muted);text-align:right;">
+            <div class="tabular">${new Date(item.created_at).toLocaleString('vi-VN')}</div>
+          </div>
+        </div>
+      `
+        )
+        .join('');
+    }
+  }
+
+  // 3. Render Email Logs
   const container = document.getElementById('emailLogsContainer');
   if (!container) return;
 
@@ -1029,6 +1126,34 @@ function setupWorkspaceActions() {
       document.getElementById('viewCalendar').style.display = view === 'calendar' ? 'block' : 'none';
       document.getElementById('viewEmails').style.display = view === 'emails' ? 'block' : 'none';
     });
+  });
+
+  // History Tab Switcher inside viewEmails
+  document.getElementById('tabHistVotesBtn')?.addEventListener('click', () => {
+    document.getElementById('tabHistVotesBtn').className = 'btn btn-primary btn-sm';
+    document.getElementById('tabHistMeetingsBtn').className = 'btn btn-ghost btn-sm';
+    document.getElementById('tabHistEmailsBtn').className = 'btn btn-ghost btn-sm';
+    document.getElementById('panelHistVotes').style.display = 'block';
+    document.getElementById('panelHistMeetings').style.display = 'none';
+    document.getElementById('panelHistEmails').style.display = 'none';
+  });
+
+  document.getElementById('tabHistMeetingsBtn')?.addEventListener('click', () => {
+    document.getElementById('tabHistVotesBtn').className = 'btn btn-ghost btn-sm';
+    document.getElementById('tabHistMeetingsBtn').className = 'btn btn-primary btn-sm';
+    document.getElementById('tabHistEmailsBtn').className = 'btn btn-ghost btn-sm';
+    document.getElementById('panelHistVotes').style.display = 'none';
+    document.getElementById('panelHistMeetings').style.display = 'block';
+    document.getElementById('panelHistEmails').style.display = 'none';
+  });
+
+  document.getElementById('tabHistEmailsBtn')?.addEventListener('click', () => {
+    document.getElementById('tabHistVotesBtn').className = 'btn btn-ghost btn-sm';
+    document.getElementById('tabHistMeetingsBtn').className = 'btn btn-ghost btn-sm';
+    document.getElementById('tabHistEmailsBtn').className = 'btn btn-primary btn-sm';
+    document.getElementById('panelHistVotes').style.display = 'none';
+    document.getElementById('panelHistMeetings').style.display = 'none';
+    document.getElementById('panelHistEmails').style.display = 'block';
   });
 
   // Theme Dots & Light/Dark Toggle

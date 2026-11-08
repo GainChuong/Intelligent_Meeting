@@ -157,19 +157,21 @@
 html, body {
   background-color: var(--bg);
   color: var(--ink);
-  font-family: 'Libre Franklin', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 15px;
-  line-height: 1.5;
+  font-family: 'Be Vietnam Pro', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14.5px;
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   transition: background-color 0.22s ease, color 0.22s ease;
 }
 
 .hero-title {
-  font-family: 'Libre Franklin', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: 'Be Vietnam Pro', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  letter-spacing: -0.03em;
 }
 
 .brand-mark {
-  font-family: 'Besley', Georgia, serif;
+  font-family: 'Be Vietnam Pro', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-weight: 800;
 }
 
 .serif-italic {
@@ -179,10 +181,11 @@ html, body {
 }
 
 .hand-note {
-  font-family: 'Caveat', cursive;
-  font-size: 21px;
+  font-family: 'Dancing Script', 'Be Vietnam Pro', cursive;
+  font-size: 19px;
   font-weight: 700;
   color: var(--coral);
+  letter-spacing: 0.02em;
 }
 
 .num, .tabular {

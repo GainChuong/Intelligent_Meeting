@@ -7,7 +7,7 @@
   <meta name="description" content="Tạo nhiều nhóm họp hàng tuần, kéo thả (drag-to-vote) lịch rảnh, tự động reset sang tuần mới, đối chiếu đa nhóm, chế độ Manager Mode và đồng bộ Google Calendar + Gmail OTP." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Besley:ital,wght@0,500;0,600;0,700;1,400&family=Caveat:wght@600;700&family=Libre+Franklin:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,600&family=Dancing+Script:wght@600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
@@ -37,7 +37,7 @@
           <span class="badge-count" id="navCalendarCount">2</span>
         </button>
         <button type="button" class="nav-tab" data-view="emails">
-          <span>Nhật ký Gmail & OTP</span>
+          <span>Nhật ký & Lịch sử</span>
         </button>
       </nav>
 
@@ -211,15 +211,6 @@
               </button>
             </div>
           </form>
-
-          <!-- Quick 1-Click Demo Crew Login -->
-          <div class="quick-demo-box">
-            <div class="quick-demo-title">
-              <span>Trải nghiệm nhanh với tư cách thành viên nhóm:</span>
-              <span style="color:var(--sage);">1-Click Login</span>
-            </div>
-            <div class="crew-chips" id="landingCrewChips"></div>
-          </div>
         </div>
       </div>
     </div>
@@ -425,31 +416,55 @@
     </section>
 
     <!-- ======================================================================
-         TAB VIEW D: GMAIL SERVICE ACCOUNT LOGS & LIVE EMAIL TESTER
+         TAB VIEW D: AUDIT LOGS, VOTING HISTORY & MEETING ARCHIVE
          ====================================================================== -->
     <section id="viewEmails" class="workspace-tab-section" style="display: none;">
-      <div class="panel-card">
+      <!-- History Tabs / Switcher -->
+      <div style="display:flex;gap:10px;margin-bottom:16px;">
+        <button type="button" class="btn btn-primary btn-sm" id="tabHistVotesBtn">Lịch sử Vote Lịch Rảnh</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="tabHistMeetingsBtn">Lịch sử Cuộc Họp Đã Chốt</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="tabHistEmailsBtn">Nhật ký Thông báo Email</button>
+      </div>
+
+      <!-- PANEL 1: VOTING HISTORY -->
+      <div class="panel-card" id="panelHistVotes">
         <div class="panel-header">
           <div>
-            <h2 class="panel-title" style="font-size:20px;">Lịch sử gửi Email & Thông báo</h2>
-            <p class="panel-subtitle">
-              Hệ thống tự động gửi thông báo lịch họp, nhắc hẹn trước giờ bắt đầu và mã xác nhận đăng ký/đặt lại mật khẩu.
-            </p>
+            <h2 class="panel-title" style="font-size:20px;">Lịch sử Vote Lịch Rảnh Toàn Bộ Thành Viên</h2>
+            <p class="panel-subtitle">Ghi nhận từng lần kéo thả lưu lịch rảnh, số khung giờ và tuần tương ứng</p>
+          </div>
+          <span class="pill-badge pill-sage" id="votingHistoryCountBadge">0 lượt ghi nhận</span>
+        </div>
+        <div id="votingHistoryList" style="display:flex;flex-direction:column;gap:10px;"></div>
+      </div>
+
+      <!-- PANEL 2: CONFIRMED MEETINGS HISTORY -->
+      <div class="panel-card" id="panelHistMeetings" style="display: none;">
+        <div class="panel-header">
+          <div>
+            <h2 class="panel-title" style="font-size:20px;">Lịch sử Toàn Bộ Cuộc Họp Đã Chốt</h2>
+            <p class="panel-subtitle">Lưu trữ vĩnh viễn các buổi họp đã được thống nhất và đưa lên Calendar chung</p>
+          </div>
+          <span class="pill-badge pill-sage" id="meetingHistoryCountBadge">0 cuộc họp</span>
+        </div>
+        <div id="meetingHistoryList" style="display:flex;flex-direction:column;gap:10px;"></div>
+      </div>
+
+      <!-- PANEL 3: EMAIL LOGS -->
+      <div class="panel-card" id="panelHistEmails" style="display: none;">
+        <div class="panel-header">
+          <div>
+            <h2 class="panel-title" style="font-size:20px;">Lịch sử Gửi Email & Thông báo</h2>
+            <p class="panel-subtitle">Hệ thống gửi tự động thông báo chốt lịch, nhắc hẹn trước giờ bắt đầu và OTP</p>
           </div>
           <span class="pill-badge pill-sage">Hệ thống thông báo tự động</span>
         </div>
 
         <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:18px;padding:14px;background:var(--surface-elevated);border-radius:14px;align-items:center;justify-content:space-between;">
-          <div style="font-size:13.5px;color:var(--ink-soft);">
-            Thử nghiệm nhanh tính năng thông báo:
-          </div>
+          <div style="font-size:13.5px;color:var(--ink-soft);">Thử nghiệm nhanh tính năng thông báo:</div>
           <div style="display:flex;flex-wrap:wrap;gap:8px;">
-            <button type="button" class="btn btn-ghost btn-sm" id="triggerSupabaseResetEmailBtn">
-              Gửi thử Email Đặt lại Mật khẩu
-            </button>
-            <button type="button" class="btn btn-coral btn-sm" id="triggerSupabaseRemindAllBtn">
-              Gửi Email Nhắc nhở Lịch họp
-            </button>
+            <button type="button" class="btn btn-ghost btn-sm" id="triggerSupabaseResetEmailBtn">Gửi thử Email Đặt lại Mật khẩu</button>
+            <button type="button" class="btn btn-coral btn-sm" id="triggerSupabaseRemindAllBtn">Gửi Email Nhắc nhở Lịch họp</button>
           </div>
         </div>
 

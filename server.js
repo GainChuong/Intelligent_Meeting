@@ -659,6 +659,8 @@ app.get('/api/dashboard', requireAuth, async (req, res) => {
       activeGroup: activeGroupReport,
       multiGroupOverlap,
       confirmedMeetings: meetingsWithLinks,
+      votingHistory: (state.voting_history || []).slice(0, 30),
+      meetingHistory: (state.meeting_history || []).slice(0, 30),
       emailLogs: (state.email_logs || []).slice(0, 15)
     });
   } catch (err) {
@@ -801,6 +803,8 @@ app.post('/api/groups/:groupId/vote', requireAuth, async (req, res) => {
 
     if (!targetGroupIds.includes(groupId)) targetGroupIds.push(groupId);
 
+    if (!state.voting_history) state.voting_history = [];
+
     for (const gid of targetGroupIds) {
       const grp = state.groups.find(g => g.id === gid);
       if (!grp) continue;
@@ -843,6 +847,25 @@ app.post('/api/groups/:groupId/vote', requireAuth, async (req, res) => {
       } else {
         state.availability_votes.push(votePayload);
       }
+
+      // Record full audit history for every vote submission / update
+      const totalSlots = Object.values(slots || {}).reduce((acc, arr) => acc + (Array.isArray(arr) ? arr.length : 0), 0);
+      state.voting_history.unshift({
+        id: `vhist-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        group_id: gid,
+        group_name: grp.name,
+        week_key: effectiveWeekKey,
+        user_email: voterUser.email,
+        user_name: voterUser.name,
+        slots_count: totalSlots,
+        action: existingIdx >= 0 ? 'vote_updated' : 'vote_submitted',
+        created_at: new Date().toISOString()
+      });
+    }
+
+    // Keep history manageable
+    if (state.voting_history.length > 200) {
+      state.voting_history = state.voting_history.slice(0, 200);
     }
 
     await saveStoreState(state);
@@ -1009,7 +1032,28 @@ app.post('/api/meetings/confirm', requireAuth, async (req, res) => {
       });
     }
 
+    if (!state.confirmed_meetings) state.confirmed_meetings = [];
     state.confirmed_meetings.unshift(newMeeting);
+
+    // Keep confirmed meeting history in dedicated log as well
+    if (!state.meeting_history) state.meeting_history = [];
+    state.meeting_history.unshift({
+      id: `mhist-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      meeting_id: newMeeting.id,
+      group_id: newMeeting.group_id,
+      group_name: newMeeting.group_name,
+      week_key: newMeeting.week_key,
+      title: newMeeting.title,
+      time: `${newMeeting.day_code} (${newMeeting.date_iso}) ${newMeeting.start_time}-${newMeeting.end_time}`,
+      location: newMeeting.location,
+      confirmed_by: newMeeting.confirmed_by_name,
+      confirmed_by_email: newMeeting.confirmed_by_email,
+      attendees_count: (newMeeting.attendee_names || []).length,
+      created_at: newMeeting.created_at
+    });
+    if (state.meeting_history.length > 200) {
+      state.meeting_history = state.meeting_history.slice(0, 200);
+    }
     await saveStoreState(state);
 
     res.json({
