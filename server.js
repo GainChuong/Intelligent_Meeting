@@ -138,7 +138,7 @@ function logEmailEvent(state, entry) {
  */
 app.post('/api/auth/request-register-otp', async (req, res) => {
   try {
-    const { email, name, password, role = 'member' } = req.body || {};
+    const { email, name, password } = req.body || {};
     if (!email || ! email.includes('@')) {
       return res.status(400).json({ error: 'Vui lòng nhập địa chỉ Gmail hợp lệ.' });
     }
@@ -160,7 +160,7 @@ app.post('/api/auth/request-register-otp', async (req, res) => {
       name: name || normalizedEmail.split('@')[0],
       password_hash: bcrypt.hashSync(String(password), 10),
       raw_password: String(password),
-      role: role === 'manager' ? 'manager' : 'member',
+      role: 'member',
       purpose: 'register',
       otp,
       expires_at: expiresAt,
@@ -794,6 +794,78 @@ app.post('/api/groups', requireAuth, async (req, res) => {
         sentInviteCount > 0
           ? `Đã tạo nhóm "${newGroup.name}" và gửi ${sentInviteCount} lời mời qua email. Khi họ bấm Đồng ý sẽ được thêm vào nhóm.`
           : `Đã tạo nhóm "${newGroup.name}" thành công!`
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/groups/:groupId/transfer-manager (Protected)
+ * Group creator / current manager transfers manager role to another member in the group
+ */
+app.post('/api/groups/:groupId/transfer-manager', requireAuth, async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const { targetEmail } = req.body || {};
+    const state = req.storeState;
+
+    const grp = state.groups.find(g => g.id === groupId);
+    if (!grp) {
+      return res.status(404).json({ error: 'Không tìm thấy nhóm này.' });
+    }
+
+    const currentCallerEmail = req.user.email.toLowerCase();
+    const isCurrentManager =
+      (grp.manager_email || '').toLowerCase() === currentCallerEmail ||
+      state.group_members.some(
+        m => m.group_id === groupId && m.user_email.toLowerCase() === currentCallerEmail && m.role === 'manager'
+      );
+
+    if (!isCurrentManager) {
+      return res.status(403).json({ error: 'Chỉ Manager hiện tại của nhóm mới có quyền nhượng quyền Manager.' });
+    }
+
+    const normalizedTarget = String(targetEmail || '').trim().toLowerCase();
+    if (!normalizedTarget || normalizedTarget === currentCallerEmail) {
+      return res.status(400).json({ error: 'Vui lòng chọn một thành viên khác trong nhóm để nhượng quyền.' });
+    }
+
+    const targetMember = state.group_members.find(
+      m => m.group_id === groupId && m.user_email.toLowerCase() === normalizedTarget
+    );
+    if (!targetMember) {
+      return res.status(404).json({ error: 'Thành viên này chưa tham gia nhóm.' });
+    }
+
+    // Demote current manager to member in this group
+    state.group_members.forEach(m => {
+      if (m.group_id === groupId) {
+        if (m.user_email.toLowerCase() === currentCallerEmail) {
+          m.role = 'member';
+        } else if (m.user_email.toLowerCase() === normalizedTarget) {
+          m.role = 'manager';
+        }
+      }
+    });
+
+    // Update group's manager email
+    grp.manager_email = targetMember.user_email;
+
+    // Update manager flag in availability votes for this group
+    (state.availability_votes || []).forEach(v => {
+      if (v.group_id === groupId) {
+        v.is_manager = v.user_email.toLowerCase() === normalizedTarget;
+      }
+    });
+
+    await saveStoreState(state);
+
+    res.json({
+      ok: true,
+      newManagerEmail: targetMember.user_email,
+      newManagerName: targetMember.user_name,
+      message: `Đã nhượng quyền Manager nhóm "${grp.name}" thành công cho ${targetMember.user_name} (${targetMember.user_email})!`
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

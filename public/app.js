@@ -228,7 +228,6 @@ function setupAuthForms() {
     const name = document.getElementById('regName').value.trim();
     const email = document.getElementById('regEmail').value.trim();
     const password = document.getElementById('regPassword').value;
-    const role = document.getElementById('regRole').value;
     const btn = document.getElementById('sendRegOtpBtn');
 
     if (!name || !email || !password) {
@@ -241,7 +240,7 @@ function setupAuthForms() {
       btn.textContent = 'Đang gửi mã OTP về hộp thư...';
       const data = await apiFetch('/api/auth/request-register-otp', {
         method: 'POST',
-        body: JSON.stringify({ name, email, password, role })
+        body: JSON.stringify({ name, email, password })
       });
       document.getElementById('regOtpVerifyBox').style.display = 'block';
       const hintEl = document.getElementById('regOtpHintText');
@@ -501,7 +500,11 @@ function renderPendingInvitationsBanner() {
 function renderTopHeaderAndWeekBar() {
   const userPill = document.getElementById('activeUserPill');
   if (userPill && state.currentUser) {
-    userPill.textContent = `${state.currentUser.name} (${state.currentUser.role === 'manager' ? 'Manager' : 'Member'})`;
+    const isMgrOfActiveGroup = state.activeGroup && (
+      state.activeGroup.manager_email?.toLowerCase() === state.currentUser.email?.toLowerCase() ||
+      (state.activeGroup.members || []).some(m => m.user_email?.toLowerCase() === state.currentUser.email?.toLowerCase() && m.role === 'manager')
+    );
+    userPill.textContent = `${state.currentUser.name} (${isMgrOfActiveGroup ? 'Manager' : 'Member'})`;
   }
 
   const emailBadge = document.getElementById('workspaceUserEmailBadge');
@@ -659,6 +662,26 @@ function renderSidebarGroupsAndManagerBox() {
           )
           .join('')}
       `;
+    }
+  }
+
+  // Transfer Manager Box Control
+  const transferBox = document.getElementById('transferManagerBox');
+  const transferSelect = document.getElementById('transferManagerSelect');
+  const isCurrentManager =
+    (grp.manager_email || '').toLowerCase() === currentEmailLower ||
+    (grp.members || []).some(m => m.user_email?.toLowerCase() === currentEmailLower && m.role === 'manager');
+
+  const otherMembers = (grp.members || []).filter(m => m.user_email?.toLowerCase() !== currentEmailLower);
+
+  if (transferBox && transferSelect) {
+    if (isCurrentManager && otherMembers.length > 0) {
+      transferBox.style.display = 'block';
+      transferSelect.innerHTML = otherMembers
+        .map(m => `<option value="${m.user_email}">${m.user_name} (${m.user_email})</option>`)
+        .join('');
+    } else {
+      transferBox.style.display = 'none';
     }
   }
 }
@@ -1703,6 +1726,32 @@ function setupWorkspaceActions() {
     } finally {
       btnEl.disabled = false;
       btnEl.textContent = 'Mời';
+    }
+  });
+
+  // Transfer Manager to another member Submit
+  document.getElementById('transferManagerBtn')?.addEventListener('click', async () => {
+    if (!state.activeGroupId) return;
+    const targetEmail = document.getElementById('transferManagerSelect')?.value;
+    if (!targetEmail) {
+      showToast('Vui lòng chọn một thành viên để nhượng quyền Manager.');
+      return;
+    }
+    const btn = document.getElementById('transferManagerBtn');
+    try {
+      btn.disabled = true;
+      btn.textContent = 'Đang nhượng...';
+      const res = await apiFetch(`/api/groups/${state.activeGroupId}/transfer-manager`, {
+        method: 'POST',
+        body: JSON.stringify({ targetEmail })
+      });
+      showToast(res.message);
+      await loadDashboardData();
+    } catch (err) {
+      showToast(err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Nhượng';
     }
   });
 
