@@ -1,0 +1,20 @@
+{
+  "name": "tossup-meeting-scheduler",
+  "version": "1.0.0",
+  "description": "Toss-up — Recurring Group Scheduling App with Weekly Auto-Reset, Cross-Group Overlap, Manager Mode, Shared Calendar & Gmail OTP/Reminders",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "seed": "node scripts/seed-supabase.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.49.1",
+    "bcryptjs": "2.4.3",
+    "cors": "2.8.5",
+    "dotenv": "16.4.7",
+    "express": "4.21.2",
+    "nodemailer": "6.10.0"
+  }
+}
+

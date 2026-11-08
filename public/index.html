@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="vi" data-theme="warm-paper" data-mode="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Meet up : Đặt lịch nhóm định kỳ & Đối chiếu lịch rảnh tự động</title>
+  <meta name="description" content="Tạo nhiều nhóm họp hàng tuần, kéo thả (drag-to-vote) lịch rảnh, tự động reset sang tuần mới, đối chiếu đa nhóm, chế độ Manager Mode và đồng bộ Google Calendar + Gmail OTP." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Besley:ital,wght@0,500;0,600;0,700;1,400&family=Caveat:wght@600;700&family=Libre+Franklin:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+  <!-- ========================================================================
+       STICKY EDITORIAL TOPBAR (Theme Switcher + Light/Dark + Navigation)
+       ======================================================================== -->
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand" id="brandHomeBtn" title="Meet up Recurring Crew Scheduler">
+        <span class="brand-mark">M</span>
+        <span>Meet up</span>
+        <span class="brand-tag">Weekly Auto-Reset</span>
+      </div>
+
+      <!-- Protected Workspace Navigation Tabs (shown when logged in) -->
+      <nav class="nav-tabs" id="workspaceNav" style="display: none;" aria-label="Điều hướng">
+        <button type="button" class="nav-tab active" data-view="scheduler">
+          <span>Kéo thả & Đối chiếu tuần</span>
+        </button>
+        <button type="button" class="nav-tab" data-view="multigroup">
+          <span>Đối chiếu đa nhóm</span>
+          <span class="badge-count" id="navMultiCount">3</span>
+        </button>
+        <button type="button" class="nav-tab" data-view="calendar">
+          <span>Calendar chung & Google Sync</span>
+          <span class="badge-count" id="navCalendarCount">2</span>
+        </button>
+        <button type="button" class="nav-tab" data-view="emails">
+          <span>Nhật ký Gmail & OTP</span>
+        </button>
+      </nav>
+
+      <!-- Right Controls: Multi-Theme + Light/Dark + User Status -->
+      <div class="topbar-controls">
+        <div class="theme-pills" title="Đổi bảng màu giao diện (Soft Editorial Themes)">
+          <button type="button" class="theme-dot active" data-set-theme="warm-paper" style="background:#FBF8F0;" title="Warm Paper (Meet up Gốc)"></button>
+          <button type="button" class="theme-dot" data-set-theme="sage-meadow" style="background:#DCE5D9;" title="Sage Meadow (Xanh Thảo Mộc)"></button>
+          <button type="button" class="theme-dot" data-set-theme="terracotta" style="background:#F5EAE3;" title="Terracotta Editorial (Cam Đất Ấm)"></button>
+          <button type="button" class="theme-dot" data-set-theme="nordic-linen" style="background:#ECECE8;" title="Nordic Linen (Tối Giản Bắc Âu)"></button>
+        </div>
+
+        <button type="button" class="mode-btn" id="toggleColorModeBtn" title="Chuyển chế độ Sáng / Tối">
+          <span id="colorModeLabel">Chế độ Tối</span>
+        </button>
+
+        <div id="userHeaderBox" style="display: none; align-items: center; gap: 8px;">
+          <span class="pill-badge pill-sage" id="activeUserPill">Minh Quân</span>
+          <button type="button" class="btn btn-ghost btn-sm" id="logoutBtn">Đăng xuất</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ========================================================================
+       1. LANDING & AUTH GATE (Supabase Auth + Gmail OTP Register & Reset)
+       ======================================================================== -->
+  <main class="landing-wrap" id="authGateView">
+    <div class="landing-grid">
+      <!-- Left Editorial Pitch + Live Toss-up Overlap Preview -->
+      <div>
+        <div class="status-tag-pill">
+          <span class="status-tag-dot"></span>
+          <span>Lên lịch nhóm định kỳ · Tự động reset mỗi tuần mới</span>
+        </div>
+
+        <h1 class="hero-title">
+          Lịch rảnh chung mỗi tuần.
+        </h1>
+
+        <p class="hero-sub">
+          Kéo thả trực tiếp trên lưới thời gian để báo lịch rảnh. Qua tuần mới hệ thống tự động reset sạch sẽ, tự đối chiếu lịch trùng tốt nhất, ưu tiên theo <strong>Manager Mode</strong> và gửi thông báo qua <strong>Gmail + Google Calendar</strong>.
+        </p>
+
+        <div class="feature-strip">
+          <div class="feature-mini">
+            <div class="feature-mini-title">Drag-to-Vote & Auto Reset</div>
+            <div class="feature-mini-desc">Kéo chuột chọn nhanh khung giờ rảnh 30 phút. Tự động làm mới khi bước sang tuần ISO mới.</div>
+          </div>
+          <div class="feature-mini">
+            <div class="feature-mini-title">Chế độ Manager Mode</div>
+            <div class="feature-mini-desc">Khi bật lên, thuật toán lập tức lọc & ưu tiên các khung giờ khớp 100% với lịch của Manager.</div>
+          </div>
+          <div class="feature-mini">
+            <div class="feature-mini-title">Đối chiếu đa nhóm & Đồng bộ</div>
+            <div class="feature-mini-desc">1-click đồng bộ lịch rảnh cá nhân sang mọi nhóm và so sánh độ trùng giữa nhiều nhóm cùng lúc.</div>
+          </div>
+          <div class="feature-mini">
+            <div class="feature-mini-title">3 Luồng Gmail & Google Calendar</div>
+            <div class="feature-mini-desc">Mail OTP đăng ký, OTP khôi phục mật khẩu, mail chốt lịch & nhắc nhở tự động kèm link Google Calendar.</div>
+          </div>
+        </div>
+
+        <!-- Live Meet up Card Preview matching the user's screenshot -->
+        <div class="panel-card" style="max-width: 520px;">
+          <div class="panel-header">
+            <div>
+              <div class="panel-title">Product Core Sync · Tuần này</div>
+              <div class="panel-subtitle">4 thành viên đã vote · Bảng đối chiếu Meet up trực tiếp</div>
+            </div>
+            <span class="hand-note">chốt thứ 4 nhé!</span>
+          </div>
+          <div class="tossup-cards-stack" id="landingPreviewCards">
+            <!-- Populated dynamically with exact TUE 17 3/4, WED 18 4/4 · best overlap, THU 19 2/4, FRI 20 2/4 -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Auth & Gmail OTP Box -->
+      <div>
+        <div class="auth-card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+            <div>
+              <h2 style="font-size:20px;font-weight:700;letter-spacing:-0.02em;">Tài khoản Meet up</h2>
+              <p style="font-size:12.5px;color:var(--muted);">Đăng nhập hoặc đăng ký xác nhận qua Email</p>
+            </div>
+            <span class="pill-badge pill-sage">Sẵn sàng</span>
+          </div>
+
+          <div class="auth-tabs" role="tablist">
+            <button type="button" class="auth-tab active" data-auth-tab="login">Đăng nhập</button>
+            <button type="button" class="auth-tab" data-auth-tab="register">Đăng ký (OTP)</button>
+            <button type="button" class="auth-tab" data-auth-tab="reset">Quên mật khẩu</button>
+          </div>
+
+          <!-- TAB 1: LOGIN -->
+          <form id="loginForm" class="auth-panel">
+            <div class="form-group">
+              <label class="form-label" for="loginEmail">Địa chỉ Email</label>
+              <input id="loginEmail" type="email" class="input-field" value="gameyuno123@gmail.com" required />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="loginPassword">Mật khẩu</label>
+              <input id="loginPassword" type="password" class="input-field" value="Meetup@2026" required />
+            </div>
+            <button type="submit" class="btn btn-coral" style="width:100%;padding:12px;">
+              Vào bảng điều khiển Meet up
+            </button>
+          </form>
+
+          <!-- TAB 2: REGISTER WITH GMAIL OTP -->
+          <form id="registerForm" class="auth-panel" style="display:none;">
+            <div class="form-group">
+              <label class="form-label" for="regName">Họ và tên hiển thị</label>
+              <input id="regName" type="text" class="input-field" placeholder="VD: Minh Quân" required />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="regEmail">Gmail nhận mã OTP</label>
+              <input id="regEmail" type="email" class="input-field" placeholder="you@gmail.com" value="gameyuno123@gmail.com" required />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="regPassword">Mật khẩu (tối thiểu 6 ký tự)</label>
+              <input id="regPassword" type="password" class="input-field" placeholder="Mật khẩu..." value="Meetup@2026" required />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="regRole">Vai trò mặc định trong nhóm</label>
+              <select id="regRole" class="input-field">
+                <option value="manager">Manager (Quản lý / Chủ trì đối chiếu lịch)</option>
+                <option value="member">Member (Thành viên kéo thả lịch rảnh)</option>
+              </select>
+            </div>
+
+            <div style="display:flex;gap:8px;margin-bottom:14px;">
+              <button type="button" class="btn btn-ghost" id="sendRegOtpBtn" style="width:100%;">
+                Gửi mã OTP về Gmail
+              </button>
+            </div>
+
+            <div id="regOtpVerifyBox" style="display:none;background:var(--surface-elevated);padding:14px;border-radius:12px;margin-bottom:12px;">
+              <label class="form-label" for="regOtpInput">Nhập mã OTP 6 số vừa gửi về Gmail</label>
+              <input id="regOtpInput" type="text" maxlength="6" class="input-field tabular" placeholder="123456" style="font-size:20px;font-weight:700;letter-spacing:6px;text-align:center;margin-bottom:10px;" />
+              <div id="regOtpHintText" style="font-size:12px;color:var(--sage);font-weight:600;margin-bottom:10px;"></div>
+              <button type="submit" class="btn btn-sage" style="width:100%;">
+                Xác nhận OTP & Tạo tài khoản
+              </button>
+            </div>
+          </form>
+
+          <!-- TAB 3: RESET PASSWORD WITH GMAIL OTP -->
+          <form id="resetForm" class="auth-panel" style="display:none;">
+            <div class="form-group">
+              <label class="form-label" for="resetEmail">Gmail cần khôi phục mật khẩu</label>
+              <input id="resetEmail" type="email" class="input-field" value="gameyuno123@gmail.com" required />
+            </div>
+            <button type="button" class="btn btn-ghost" id="sendResetOtpBtn" style="width:100%;margin-bottom:14px;">
+              Gửi mã OTP đặt lại mật khẩu
+            </button>
+
+            <div id="resetOtpVerifyBox" style="display:none;background:var(--surface-elevated);padding:14px;border-radius:12px;">
+              <div class="form-group">
+                <label class="form-label" for="resetOtpInput">Mã OTP 6 số từ Gmail</label>
+                <input id="resetOtpInput" type="text" maxlength="6" class="input-field tabular" placeholder="654321" style="font-size:19px;font-weight:700;letter-spacing:5px;text-align:center;" />
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="resetNewPassword">Mật khẩu mới</label>
+                <input id="resetNewPassword" type="password" class="input-field" placeholder="Nhập mật khẩu mới..." value="Meetup@2026" />
+              </div>
+              <div id="resetOtpHintText" style="font-size:12px;color:var(--coral);font-weight:600;margin-bottom:10px;"></div>
+              <button type="submit" class="btn btn-coral" style="width:100%;">
+                Cập nhật mật khẩu & Đăng nhập
+              </button>
+            </div>
+          </form>
+
+          <!-- Quick 1-Click Demo Crew Login -->
+          <div class="quick-demo-box">
+            <div class="quick-demo-title">
+              <span>Trải nghiệm nhanh với tư cách thành viên nhóm:</span>
+              <span style="color:var(--sage);">1-Click Login</span>
+            </div>
+            <div class="crew-chips" id="landingCrewChips"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ========================================================================
+       2. PROTECTED WORKSPACE APPLICATION
+       ======================================================================== -->
+  <div class="workspace-container" id="protectedWorkspaceView" style="display: none;">
+
+    <!-- Top Member Switcher & Weekly Auto-Reset Bar -->
+    <section class="member-Context-bar" aria-label="Điều khiển tuần và thành viên">
+      <div class="member-context-left">
+        <div class="week-nav-pill">
+          <button type="button" class="week-btn" id="prevWeekBtn" title="Tuần trước">‹</button>
+          <span class="tabular" id="currentWeekBadge">2026-W45</span>
+          <span style="color:var(--muted);font-weight:500;" id="currentWeekRange">03/11 - 09/11/2026</span>
+          <button type="button" class="week-btn" id="nextWeekBtn" title="Qua tuần mới (Tự động reset bảng vote)">›</button>
+        </div>
+
+        <button type="button" class="btn btn-ghost btn-sm" id="thisWeekBtn">Tuần hiện tại</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="resetWeekVotesBtn" title="Làm mới bảng vote của tuần này">
+          Reset lịch tuần
+        </button>
+        <button type="button" class="btn btn-ghost btn-sm" id="restoreSeedVotesBtn" title="Khôi phục dữ liệu mẫu 4/4">
+          Khôi phục mẫu 4/4
+        </button>
+      </div>
+
+      <!-- Quick Switch Active Voter to test multi-member & Manager views effortlessly -->
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span style="font-size:12px;font-weight:600;color:var(--muted);">Đang thao tác dưới tên:</span>
+        <div class="crew-chips" id="workspaceMemberSwitcher"></div>
+      </div>
+    </section>
+
+    <!-- ======================================================================
+         TAB VIEW A: SINGLE-GROUP DRAG-TO-VOTE & TOSS-UP OVERLAP DASHBOARD
+         ====================================================================== -->
+    <section id="viewScheduler" class="workspace-tab-section">
+      <div class="scheduler-grid">
+
+        <!-- COLUMN 1: GROUPS LIST + MANAGER MODE CONTROL -->
+        <aside class="panel-card">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">Các nhóm định kỳ</h2>
+              <p class="panel-subtitle">Mỗi nhóm cho một cuộc họp riêng</p>
+            </div>
+            <button type="button" class="btn btn-primary btn-sm" id="openCreateGroupModalBtn">+ Tạo nhóm</button>
+          </div>
+
+          <div class="group-list" id="sidebarGroupList"></div>
+
+          <div style="display:flex;gap:6px;margin-top:8px;">
+            <input type="text" id="joinGroupCodeInput" class="input-field" placeholder="Nhập mã mời (VD: SPRINT-W45)" style="padding:7px 10px;font-size:12px;" />
+            <button type="button" class="btn btn-ghost btn-sm" id="joinGroupBtn">Tham gia</button>
+          </div>
+
+          <!-- MANAGER MODE BOX -->
+          <div class="manager-mode-box active" id="managerModeCard">
+            <div class="switch-row">
+              <div>
+                <div style="font-size:13.5px;font-weight:700;display:flex;align-items:center;gap:5px;">
+                  <span>Chế độ Manager Mode</span>
+                </div>
+                <div style="font-size:11.5px;color:var(--muted);margin-top:2px;">
+                  Đối chiếu & lọc khung giờ bắt buộc khớp với Manager (<span id="managerNameLabel">Minh Quân</span>)
+                </div>
+              </div>
+              <div class="toggle-switch on" id="managerModeToggle" role="switch" aria-checked="true" tabindex="0">
+                <div class="toggle-knob"></div>
+              </div>
+            </div>
+            <div id="managerModeStatusNote" style="margin-top:10px;font-size:12px;font-weight:600;color:var(--sage);">
+              Đang bật: Chỉ đề xuất giờ mà Manager rảnh.
+            </div>
+          </div>
+
+          <!-- Group Members List -->
+          <div style="margin-top:18px;">
+            <div style="font-size:12.5px;font-weight:700;margin-bottom:8px;display:flex;justify-content:space-between;">
+              <span>Thành viên trong nhóm</span>
+              <span class="tabular" id="groupVotedRatioLabel" style="color:var(--sage);">4/4 đã vote</span>
+            </div>
+            <div id="groupMembersList" style="display:flex;flex-direction:column;gap:6px;"></div>
+          </div>
+        </aside>
+
+        <!-- COLUMN 2: INTERACTIVE DRAG-TO-VOTE WEEKLY TIMETABLE -->
+        <section class="panel-card">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title" id="activeGroupTitle">Product Core Sync</h2>
+              <p class="panel-subtitle" id="activeGroupDesc">
+                Nhấn giữ và kéo chuột (drag) qua các ô 30 phút để đánh dấu lịch rảnh của bạn trong tuần.
+              </p>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button type="button" class="btn btn-ghost btn-sm" id="syncAllGroupsBtn" title="Đồng bộ lịch rảnh này của bạn sang tất cả các nhóm khác">
+                Đồng bộ sang mọi nhóm
+              </button>
+              <button type="button" class="btn btn-sage btn-sm" id="saveVoteBtn">
+                Đã lưu tự động
+              </button>
+            </div>
+          </div>
+
+          <div class="drag-grid-toolbar">
+            <div class="legend-items">
+              <span><i class="legend-swatch" style="background:var(--sage);"></i>Lịch rảnh của bạn (Kéo để chọn/bỏ)</span>
+              <span><i class="legend-swatch" style="background:rgba(61,122,90,0.28);"></i>Độ trùng thành viên khác</span>
+              <span><i class="legend-swatch" style="border-left:3px solid var(--amber);background:var(--surface);"></i>Khung giờ Manager rảnh</span>
+            </div>
+            <div style="font-size:12px;font-weight:600;color:var(--coral);" id="mySelectedSlotsCounter">
+              Đang chọn: 0 ô (0 giờ)
+            </div>
+          </div>
+
+          <div class="drag-table-wrap">
+            <table class="drag-grid" id="dragVoteTable" aria-label="Lưới kéo thả lịch rảnh hàng tuần">
+              <thead id="dragVoteHead"></thead>
+              <tbody id="dragVoteBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- COLUMN 3: MEET UP OVERLAP CARDS & BEST RECOMMENDATION -->
+        <aside class="panel-card">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">Đối chiếu lịch rảnh Meet up</h2>
+              <p class="panel-subtitle">Tự động xếp hạng khung giờ tốt nhất trong tuần</p>
+            </div>
+            <span class="pill-badge pill-sage tabular" id="quorumBadge">Tối thiểu 4/4</span>
+          </div>
+
+          <!-- Best Recommendation Hero Banner -->
+          <div id="bestSlotSpotlight" style="background:var(--sage-soft);border-radius:16px;padding:15px;margin-bottom:16px;">
+            <!-- Populated dynamically -->
+          </div>
+
+          <!-- Segmented Toss-up Day Cards (Matches user screenshot!) -->
+          <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px;display:flex;justify-content:space-between;">
+            <span>Các ngày trong tuần (Bấm để chốt lịch)</span>
+            <span>Trùng khớp</span>
+          </div>
+          <div class="tossup-cards-stack" id="workspaceTossupCards"></div>
+        </aside>
+
+      </div>
+    </section>
+
+    <!-- ======================================================================
+         TAB VIEW B: MULTI-GROUP CROSS-COMPARISON DASHBOARD
+         ====================================================================== -->
+    <section id="viewMultigroup" class="workspace-tab-section" style="display: none;">
+      <div class="panel-card" style="margin-bottom:20px;">
+        <div class="panel-header">
+          <div>
+            <h2 class="panel-title" style="font-size:20px;">Đối chiếu lịch rảnh liên nhóm (Cross-Group Sync)</h2>
+            <p class="panel-subtitle">
+              Chọn từ 2 nhóm trở lên để đối chiếu lịch rảnh tổng hợp giữa các nhóm khác nhau hoặc tìm khung giờ họp chung liên nhóm mà không bị đụng lịch.
+            </p>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <label style="display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:600;cursor:pointer;">
+              <input type="checkbox" id="multiGroupManagerCheck" checked />
+              <span>Áp dụng Manager Mode cho toàn bộ nhóm</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="multi-group-chips" id="multiGroupSelectorChips"></div>
+
+        <!-- Best Cross-Group Slot Banner -->
+        <div id="multiGroupBestBanner" style="margin-bottom:20px;"></div>
+
+        <!-- Day-by-Day Multi-Group Matrix -->
+        <div class="compare-matrix" id="multiGroupMatrixGrid"></div>
+      </div>
+    </section>
+
+    <!-- ======================================================================
+         TAB VIEW C: SHARED CONFIRMED CALENDAR & GOOGLE CALENDAR SYNC
+         ====================================================================== -->
+    <section id="viewCalendar" class="workspace-tab-section" style="display: none;">
+      <div class="panel-card">
+        <div class="panel-header">
+          <div>
+            <h2 class="panel-title" style="font-size:20px;">Calendar chung các lịch họp đã chốt</h2>
+            <p class="panel-subtitle">
+              Tất cả các cuộc họp đã chốt từ mọi nhóm được lưu cố định trên Calendar chung (không bị mất khi qua tuần mới). Hỗ trợ 1-click thêm vào Google Calendar, tải file .ics và gửi mail nhắc nhở ngay.
+            </p>
+          </div>
+          <button type="button" class="btn btn-coral btn-sm" id="openManualConfirmModalBtn">
+            + Chốt lịch họp mới
+          </button>
+        </div>
+
+        <div class="calendar-grid" id="confirmedCalendarGrid"></div>
+      </div>
+    </section>
+
+    <!-- ======================================================================
+         TAB VIEW D: GMAIL SERVICE ACCOUNT LOGS & LIVE EMAIL TESTER
+         ====================================================================== -->
+    <section id="viewEmails" class="workspace-tab-section" style="display: none;">
+      <div class="panel-card">
+        <div class="panel-header">
+          <div>
+            <h2 class="panel-title" style="font-size:20px;">Lịch sử gửi Email & Thông báo</h2>
+            <p class="panel-subtitle">
+              Hệ thống tự động gửi thông báo lịch họp, nhắc hẹn trước giờ bắt đầu và mã xác nhận đăng ký/đặt lại mật khẩu.
+            </p>
+          </div>
+          <span class="pill-badge pill-sage">Hệ thống thông báo tự động</span>
+        </div>
+
+        <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:18px;padding:14px;background:var(--surface-elevated);border-radius:14px;align-items:center;justify-content:space-between;">
+          <div style="font-size:13.5px;color:var(--ink-soft);">
+            Thử nghiệm nhanh tính năng thông báo:
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;">
+            <button type="button" class="btn btn-ghost btn-sm" id="triggerSupabaseResetEmailBtn">
+              Gửi thử Email Đặt lại Mật khẩu
+            </button>
+            <button type="button" class="btn btn-coral btn-sm" id="triggerSupabaseRemindAllBtn">
+              Gửi Email Nhắc nhở Lịch họp
+            </button>
+          </div>
+        </div>
+
+        <div id="emailLogsContainer" style="display:flex;flex-direction:column;gap:10px;"></div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- ========================================================================
+       MODAL 1: CREATE NEW RECURRING GROUP
+       ======================================================================== -->
+  <div class="modal-backdrop" id="createGroupModal">
+    <div class="modal-box">
+      <div class="panel-header">
+        <h3 class="panel-title" style="font-size:18px;">Tạo nhóm họp định kỳ mới</h3>
+        <button type="button" class="btn btn-ghost btn-sm" data-close-modal="createGroupModal">Đóng</button>
+      </div>
+      <form id="createGroupForm">
+        <div class="form-group">
+          <label class="form-label" for="newGroupName">Tên nhóm / Cuộc họp</label>
+          <input id="newGroupName" type="text" class="input-field" placeholder="VD: Design Critique Tuần / CLB Đọc Sách" required />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="newGroupDesc">Mô tả ngắn</label>
+          <input id="newGroupDesc" type="text" class="input-field" placeholder="Họp định kỳ mỗi tuần, tự động reset lịch rảnh..." />
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="form-group">
+            <label class="form-label" for="newGroupLocation">Địa điểm / Phòng họp</label>
+            <input id="newGroupLocation" type="text" class="input-field" value="Google Meet · Phòng Studio" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="newGroupQuorum">Số người tối thiểu (Quorum)</label>
+            <input id="newGroupQuorum" type="number" min="2" max="20" class="input-field tabular" value="3" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;cursor:pointer;">
+            <input type="checkbox" id="newGroupManagerMode" checked />
+            <span>Bật mặc định Manager Mode (Ưu tiên khớp lịch người tạo nhóm)</span>
+          </label>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:18px;">
+          <button type="button" class="btn btn-ghost" data-close-modal="createGroupModal">Hủy</button>
+          <button type="submit" class="btn btn-coral">Tạo nhóm & Bắt đầu vote</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       MODAL 2: CONFIRM MEETING SLOT & SEND GMAIL NOTIFICATION
+       ======================================================================== -->
+  <div class="modal-backdrop" id="confirmMeetingModal">
+    <div class="modal-box">
+      <div class="panel-header">
+        <h3 class="panel-title" style="font-size:18px;">Chốt lịch họp & Gửi thông báo Gmail</h3>
+        <button type="button" class="btn btn-ghost btn-sm" data-close-modal="confirmMeetingModal">Đóng</button>
+      </div>
+      <form id="confirmMeetingForm">
+        <input type="hidden" id="confirmGroupId" />
+        <input type="hidden" id="confirmWeekKey" />
+        <input type="hidden" id="confirmManagerMatched" value="true" />
+
+        <div class="form-group">
+          <label class="form-label" for="confirmTitle">Tiêu đề buổi họp</label>
+          <input id="confirmTitle" type="text" class="input-field" required />
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+          <div class="form-group">
+            <label class="form-label" for="confirmDayCode">Thứ</label>
+            <select id="confirmDayCode" class="input-field">
+              <option value="MON">MON (Thứ 2)</option>
+              <option value="TUE">TUE (Thứ 3)</option>
+              <option value="WED" selected>WED (Thứ 4)</option>
+              <option value="THU">THU (Thứ 5)</option>
+              <option value="FRI">FRI (Thứ 6)</option>
+              <option value="SAT">SAT (Thứ 7)</option>
+              <option value="SUN">SUN (Chủ Nhật)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="confirmStartTime">Bắt đầu</label>
+            <input id="confirmStartTime" type="text" class="input-field tabular" value="19:30" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="confirmEndTime">Kết thúc</label>
+            <input id="confirmEndTime" type="text" class="input-field tabular" value="21:00" />
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div class="form-group">
+            <label class="form-label" for="confirmDateIso">Ngày (YYYY-MM-DD)</label>
+            <input id="confirmDateIso" type="text" class="input-field tabular" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="confirmLocation">Địa điểm / Link họp</label>
+            <input id="confirmLocation" type="text" class="input-field" value="Phòng Studio B2 · Google Meet" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="confirmNotes">Ghi chú cuộc họp</label>
+          <input id="confirmNotes" type="text" class="input-field" />
+        </div>
+        <div class="form-group">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;cursor:pointer;">
+            <input type="checkbox" id="confirmSendEmailCheck" checked />
+            <span>Tự động gửi email thông báo chốt lịch kèm nút "+ Google Calendar" về Gmail</span>
+          </label>
+        </div>
+
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:18px;">
+          <button type="button" class="btn btn-ghost" data-close-modal="confirmMeetingModal">Hủy</button>
+          <button type="submit" class="btn btn-sage">Chốt lịch & Gửi Mail</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-stack" id="toastStack" aria-live="polite"></div>
+
+  <script src="/app.js" type="module"></script>
+</body>
+</html>
