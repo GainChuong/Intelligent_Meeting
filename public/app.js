@@ -916,7 +916,6 @@ function renderSingleGroupOverlapPanel() {
     }
   }
 
-  const stack = document.getElementById('workspaceTossupCards');
   if (stack) {
     stack.innerHTML = (ov.tossupCards || [])
       .map(card => renderTossupSegmentedCardHtml(card, true))
